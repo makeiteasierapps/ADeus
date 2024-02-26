@@ -17,7 +17,7 @@ const processAudio = async (req: Request) => {
 
     const contentType = req.headers.get('Content-Type') || '';
     let arrayBuffer: ArrayBuffer;
-    let filenameTimestamp = `audio_${Date.now()}.wav`;
+    let filenameTimestamp: string;
 
     if (contentType.includes('multipart/form-data')) {
         const form = await multiParser(req);
@@ -30,17 +30,28 @@ const processAudio = async (req: Request) => {
         console.log('Form:', form);
         const file = form.files.file;
         arrayBuffer = file.content.buffer;
-        filenameTimestamp = file.filename || filenameTimestamp;
+        filenameTimestamp = file.filename || `audio_${Date.now()}`;
     } else {
         arrayBuffer = await req.arrayBuffer();
+        console.log('Array buffer:', arrayBuffer)
+    }
+
+    const fileSignature = new Uint8Array(arrayBuffer.slice(0, 4));
+    const fileSignatureString = new TextDecoder("ascii").decode(fileSignature);
+
+    let fileExtension = 'unknown';
+    if (fileSignatureString === 'RIFF') {
+        fileExtension = 'wav';
+    } else if (fileSignatureString === 'fLaC') {
+        fileExtension = 'flac';
     }
 
     let transcript: string;
     let embeddings: any;
     try {
-        const filenameTimestamp = `adeus_wav_${Date.now()}.wav`;
-        const wavFile = await toFile(arrayBuffer, filenameTimestamp);
-        console.log(typeof wavFile, wavFile);
+        filenameTimestamp = `audio_${Date.now()}.${fileExtension}`;
+        const audioFile = await toFile(arrayBuffer, filenameTimestamp);
+        console.log(typeof audioFile, audioFile);
 
         // const { data, error } = await supabase.storage
         //   .from("test")
@@ -52,7 +63,7 @@ const processAudio = async (req: Request) => {
 
         const transcriptResponse =
             await openaiClient.audio.transcriptions.create({
-                file: wavFile,
+                file: audioFile,
                 model: 'whisper-1',
                 prompt: 'If this audio file does not contain any speech, please return "None"',
             });

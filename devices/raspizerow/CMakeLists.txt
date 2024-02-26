@@ -25,6 +25,9 @@ set_target_properties(main PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
+include_directories(/usr/include/FLAC)
+find_library(FLAC_LIBRARY FLAC PATHS /usr/lib/aarch64-linux-gnu REQUIRED)
+
 # Link against required libraries
 find_package(ALSA REQUIRED)
 find_package(CURL REQUIRED)
@@ -35,4 +38,5 @@ target_link_libraries(main PRIVATE
     ${CURL_LIBRARIES}
     Threads::Threads
     cxxopts
+    ${FLAC_LIBRARY}
 )
