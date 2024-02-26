@@ -1,4 +1,5 @@
 #!/bin/bash
+<<<<<<< HEAD
 
 # Create a build directory
 mkdir -p build
@@ -11,3 +12,6 @@ cmake ..
 make
 
 cp -f main ..
+=======
+sudo g++ -std=c++17 main.cpp -g -o main -lasound -lcurl -lpthread -lFLAC
+>>>>>>> bfef88f (Begin refactor)

@@ -12,6 +12,7 @@
 #include <filesystem>  // C++17 feature
 
 #define DO_NOT_APPLY_GAIN 1.0
+#include <FLAC/stream_encoder.h>
 
 // Assuming 4 bytes per sample for S32_LE format and mono audio
 int bytesPerSample = 4;
@@ -93,61 +94,23 @@ void recordAudio(snd_pcm_t *capture_handle, snd_pcm_uframes_t period_size)
         }
     }
 }
+#include <FLAC/stream_encoder.h>
 
-void createWavHeader(std::vector<char> &header, int bitsPerSample, int dataSize )
-{
-    // "RIFF" chunk descriptor
-    header.insert(header.end(), {'R', 'I', 'F', 'F'});
+// Callback for the FLAC encoder to write encoded data
+FLAC__StreamEncoderWriteStatus write_callback(const FLAC__StreamEncoder *encoder, const FLAC__byte buffer[], size_t bytes, unsigned samples, unsigned current_frame, void *client_data) {
+    std::vector<char>* outBuffer = static_cast<std::vector<char>*>(client_data);
+    outBuffer->insert(outBuffer->end(), buffer, buffer + bytes);
+    return FLAC__STREAM_ENCODER_WRITE_STATUS_OK;
+}
 
-    // Chunk size: 4 + (8 + SubChunk1Size) + (8 + SubChunk2Size)
-    int chunkSize = 36 + dataSize;
-    auto chunkSizeBytes = reinterpret_cast<const char *>(&chunkSize);
-    header.insert(header.end(), chunkSizeBytes, chunkSizeBytes + 4);
+// Callback for the FLAC encoder to seek -- not used but required
+FLAC__StreamEncoderSeekStatus seek_callback(const FLAC__StreamEncoder *encoder, FLAC__uint64 absolute_byte_offset, void *client_data) {
+    return FLAC__STREAM_ENCODER_SEEK_STATUS_UNSUPPORTED;
+}
 
-    // Format
-    header.insert(header.end(), {'W', 'A', 'V', 'E'});
-
-    // "fmt " sub-chunk
-    header.insert(header.end(), {'f', 'm', 't', ' '});
-
-    // Sub-chunk 1 size (16 for PCM)
-    int subchunk1Size = 16;
-    auto subchunk1SizeBytes = reinterpret_cast<const char *>(&subchunk1Size);
-    header.insert(header.end(), subchunk1SizeBytes, subchunk1SizeBytes + 4);
-
-    // Audio format (PCM = 1)
-    short audioFormat = 1;
-    auto audioFormatBytes = reinterpret_cast<const char *>(&audioFormat);
-    header.insert(header.end(), audioFormatBytes, audioFormatBytes + 2);
-
-    // Number of channels
-    auto channelsBytes = reinterpret_cast<const char *>(&channels);
-    header.insert(header.end(), channelsBytes, channelsBytes + 2);
-
-    // Sample rate
-    auto sampleRateBytes = reinterpret_cast<const char *>(&sampleRate);
-    header.insert(header.end(), sampleRateBytes, sampleRateBytes + 4);
-
-    // Byte rate (SampleRate * NumChannels * BitsPerSample/8)
-    int byteRate = sampleRate * channels * bitsPerSample / 8;
-    auto byteRateBytes = reinterpret_cast<const char *>(&byteRate);
-    header.insert(header.end(), byteRateBytes, byteRateBytes + 4);
-
-    // Block align (NumChannels * BitsPerSample/8)
-    short blockAlign = channels * bitsPerSample / 8;
-    auto blockAlignBytes = reinterpret_cast<const char *>(&blockAlign);
-    header.insert(header.end(), blockAlignBytes, blockAlignBytes + 2);
-
-    // Bits per sample
-    auto bitsPerSampleBytes = reinterpret_cast<const char *>(&bitsPerSample);
-    header.insert(header.end(), bitsPerSampleBytes, bitsPerSampleBytes + 2);
-
-    // "data" sub-chunk
-    header.insert(header.end(), {'d', 'a', 't', 'a'});
-
-    // Sub-chunk 2 size (data size)
-    auto dataSizeBytes = reinterpret_cast<const char *>(&dataSize);
-    header.insert(header.end(), dataSizeBytes, dataSizeBytes + 4);
+// Callback for the FLAC encoder to tell the current position -- not used but required
+FLAC__StreamEncoderTellStatus tell_callback(const FLAC__StreamEncoder *encoder, FLAC__uint64 *absolute_byte_offset, void *client_data) {
+    return FLAC__STREAM_ENCODER_TELL_STATUS_UNSUPPORTED;
 }
 
 void saveWavToFile(const std::vector<char> &buffer) {
@@ -217,14 +180,11 @@ void sendWavBuffer(const std::vector<char> &buffer)
     curl_global_cleanup();
 }
 
-void handleAudioBuffer()
-{
-    while (true)
-    {
+void handleAudioBuffer() {
+    while (true) {
         std::vector<char> dataChunk;
         // Accumulate our target bytes
-        while (dataChunk.size() < targetBytes)
-        {
+        while (dataChunk.size() < targetBytes) {
             std::vector<char> buffer = audioQueue.pop();
             dataChunk.insert(dataChunk.end(), buffer.begin(), buffer.end());
         }
@@ -245,21 +205,33 @@ void handleAudioBuffer()
         }
 
         // Process and send the accumulated data
-        if (!dataChunk.empty())
-        {
-            // Create the WAV header in memory
-            std::vector<char> wavHeader;
-            int bitsPerSample = 32;
-            int dataSize = dataChunk.size();
-            createWavHeader(wavHeader, bitsPerSample, dataSize);
+        if (!dataChunk.empty()) {
+            std::vector<char> flacBuffer; // Buffer to hold encoded FLAC data
 
-            // Combine the header and the data into a single buffer
-            std::vector<char> wavBuffer;
-            wavBuffer.reserve(wavHeader.size() + dataSize);
-            wavBuffer.insert(wavBuffer.end(), wavHeader.begin(), wavHeader.end());
-            wavBuffer.insert(wavBuffer.end(), dataChunk.begin(), dataChunk.end());
+            FLAC__StreamEncoder* encoder = FLAC__stream_encoder_new();
+            if (encoder == nullptr) {
+                std::cerr << "Failed to create FLAC encoder" << std::endl;
+                continue; // Skip this chunk
+            }
 
-            sendWavBuffer(wavBuffer);
+            FLAC__stream_encoder_set_channels(encoder, channels);
+            FLAC__stream_encoder_set_bits_per_sample(encoder, bitsPerSample);
+            FLAC__stream_encoder_set_sample_rate(encoder, sampleRate);
+
+            FLAC__stream_encoder_init_stream(encoder, write_callback, seek_callback, tell_callback, nullptr, &flacBuffer);
+
+            // Convert the raw audio data to FLAC__int32 samples required by the FLAC encoder
+            // This conversion depends on the format of your raw audio data
+            std::vector<FLAC__int32> pcm(dataChunk.size() / sizeof(FLAC__int32));
+            memcpy(pcm.data(), dataChunk.data(), dataChunk.size());
+
+            FLAC__stream_encoder_process_interleaved(encoder, pcm.data(), pcm.size() / channels);
+
+            FLAC__stream_encoder_finish(encoder);
+            FLAC__stream_encoder_delete(encoder);
+
+            // Now flacBuffer contains the encoded FLAC data, send it
+            sendFlacBuffer(flacBuffer);
         }
     }
 }
