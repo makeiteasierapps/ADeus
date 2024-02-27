@@ -146,6 +146,11 @@ void sendFlacBuffer(const std::vector<char> &buffer)
     {
         saveFlacToFile(buffer);
     }
+
+    CURL *curl;
+    CURLcode res;
+    const char *supabaseUrlEnv = getenv("SUPABASE_URL");
+    if (!supabaseUrlEnv)
     {
         std::cerr << "Environment variable SUPABASE_URL is not set." << std::endl;
         return;
@@ -236,7 +241,7 @@ void handleAudioBuffer()
             FLAC__stream_encoder_delete(encoder);
 
             // Now flacBuffer contains the encoded FLAC data, send it
-            sendWavBuffer(flacBuffer);
+            sendFlacBuffer(flacBuffer);
         }
     }
 }
