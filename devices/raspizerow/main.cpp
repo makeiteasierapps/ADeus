@@ -225,15 +225,23 @@ void handleAudioBuffer()
             }
 
             FLAC__stream_encoder_set_channels(encoder, channels);
-            FLAC__stream_encoder_set_bits_per_sample(encoder, 16);
+            FLAC__stream_encoder_set_bits_per_sample(encoder, 32);
             FLAC__stream_encoder_set_sample_rate(encoder, sampleRate);
             FLAC__stream_encoder_set_total_samples_estimate(encoder, dataChunk.size() / bytesPerSample / channels);
             FLAC__stream_encoder_set_compression_level(encoder, 5);
             FLAC__stream_encoder_init_stream(encoder, write_callback, seek_callback, tell_callback, nullptr, &flacBuffer);
 
             // Convert the raw audio data to FLAC__int32 samples required by the FLAC encoder
-            std::vector<FLAC__int32> pcm(dataChunk.size() / sizeof(FLAC__int32));
-            memcpy(pcm.data(), dataChunk.data(), dataChunk.size());
+            size_t numSamples = dataChunk.size() / sizeof(FLAC__int32);
+            std::vector<FLAC__int32> pcm(numSamples);
+            for (size_t i = 0; i < numSamples; ++i)
+            {
+                // Assuming dataChunk is little-endian, as per S32_LE format
+                pcm[i] = (static_cast<FLAC__int32>(dataChunk[4 * i + 3]) << 24) |
+                         (static_cast<FLAC__int32>(dataChunk[4 * i + 2] & 0xFF) << 16) |
+                         (static_cast<FLAC__int32>(dataChunk[4 * i + 1] & 0xFF) << 8) |
+                         (static_cast<FLAC__int32>(dataChunk[4 * i] & 0xFF));
+            }
 
             FLAC__stream_encoder_process_interleaved(encoder, pcm.data(), pcm.size() / channels);
 
