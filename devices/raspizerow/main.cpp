@@ -222,7 +222,8 @@ void handleAudioBuffer()
             FLAC__stream_encoder_set_channels(encoder, channels);
             FLAC__stream_encoder_set_bits_per_sample(encoder, 16);
             FLAC__stream_encoder_set_sample_rate(encoder, sampleRate);
-
+            FLAC__stream_encoder_set_total_samples_estimate(encoder, dataChunk.size() / bytesPerSample / channels);
+            FLAC__stream_encoder_set_compression_level(encoder, 5);
             FLAC__stream_encoder_init_stream(encoder, write_callback, seek_callback, tell_callback, nullptr, &flacBuffer);
 
             // Convert the raw audio data to FLAC__int32 samples required by the FLAC encoder
