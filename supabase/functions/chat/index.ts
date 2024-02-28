@@ -87,7 +87,7 @@ const chat = async (req) => {
 
   // Embed the last messageHistory message using OpenAI's embeddings API
   const embeddingsResponse = await openaiClient.embeddings.create({
-    model: "text-embedding-ada-002",
+    model: "text-embedding-3-small",
     input: messageHistory[messageHistory.length - 1].content,
   });
   const embeddings = embeddingsResponse.data[0].embedding;
